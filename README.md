@@ -2,6 +2,8 @@
 
 A terminal dashboard that displays the real-time status of an Asterisk call queue — refreshing every 2 seconds.
 
+![Screenshot](screenshot.svg)
+
 ## Features
 
 - **Queue summary** — active calls, strategy, holdtime, talktime, completed, abandoned, SL%, SL2%
