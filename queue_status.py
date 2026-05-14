@@ -38,6 +38,14 @@ from rich import box
 console = Console()
 
 
+# Asterisk on some servers emits CLI output coloured with ANSI escape codes
+# (e.g. "(\x1b[1;32;40mNot in use\x1b[0m)"). Those escapes leak into our
+# captured state token and break every downstream check ('not in use' equality,
+# the (Unavailable\b regex, etc.). Strip them at the source so every parser
+# downstream sees plain text.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
 def run_asterisk(command: str) -> str:
     try:
         result = subprocess.run(
@@ -46,7 +54,7 @@ def run_asterisk(command: str) -> str:
             text=True,
             timeout=10,
         )
-        return result.stdout + result.stderr
+        return _ANSI_RE.sub("", result.stdout + result.stderr)
     except FileNotFoundError:
         return "ERROR: 'asterisk' command not found. Make sure Asterisk is installed and in PATH."
     except subprocess.TimeoutExpired:
