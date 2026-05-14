@@ -13,8 +13,19 @@ import time
 import select
 import termios
 import tty
+import logging
 import argparse
 from datetime import datetime
+
+
+# Debug log — captures eligibility decisions each refresh so it's possible to
+# diagnose "no agent is marked Next" reports on the deployed server.
+logging.basicConfig(
+    filename="asterisk_queue_monitor.log",
+    level=logging.INFO,
+    format="%(asctime)s %(message)s",
+)
+log = logging.getLogger("queue_monitor")
 
 from rich.console import Console
 from rich.table import Table
@@ -578,37 +589,47 @@ def determine_next_agents(members: list, strategy: str) -> tuple[set, bool]:
     """
     strategy = (strategy or "").lower().strip()
 
+    log.info("--- determine_next_agents strategy=%r ---", strategy)
+    for m in members:
+        log.info(
+            "  %-12s paused=%-5s in_call=%-5s unavail=%-5s state=%-14r last=%s eligible=%s",
+            m.get("name", "?"),
+            m.get("paused"),
+            m.get("in_call"),
+            m.get("unavailable"),
+            m.get("state"),
+            m.get("last_call_secs"),
+            is_eligible(m),
+        )
+
     eligible = [m for m in members if is_eligible(m)]
+    log.info("  eligible interfaces: %s", [m.get("interface") for m in eligible])
 
     predictable_strategies = {"ringall", "leastrecent", "fewestcalls", "linear"}
     is_predictable = strategy in predictable_strategies
 
-    if not eligible or not is_predictable:
-        # Return the eligible set so callers can show "?" for unpredictable strategies
-        return set(), is_predictable
+    next_set: set = set()
+    if eligible and is_predictable:
+        if strategy == "ringall":
+            next_set = {m["interface"] for m in eligible}
+        elif strategy == "leastrecent":
+            # Agent who went longest without a call goes first.
+            # None (never taken a call) is treated as infinity — highest priority.
+            winner = max(
+                eligible,
+                key=lambda m: m["last_call_secs"] if m["last_call_secs"] is not None else float("inf"),
+            )
+            next_set = {winner["interface"]}
+        elif strategy == "fewestcalls":
+            winner = min(eligible, key=lambda m: m.get("calls_taken", 0))
+            next_set = {winner["interface"]}
+        elif strategy == "linear":
+            # Members are already ordered by penalty in queue show output;
+            # the first eligible one (lowest penalty, earliest in list) wins.
+            next_set = {eligible[0]["interface"]}
 
-    if strategy == "ringall":
-        return {m["interface"] for m in eligible}, True
-
-    if strategy == "leastrecent":
-        # Agent who went longest without a call goes first.
-        # None (never taken a call) is treated as infinity — highest priority.
-        winner = max(
-            eligible,
-            key=lambda m: m["last_call_secs"] if m["last_call_secs"] is not None else float("inf"),
-        )
-        return {winner["interface"]}, True
-
-    if strategy == "fewestcalls":
-        winner = min(eligible, key=lambda m: m.get("calls_taken", 0))
-        return {winner["interface"]}, True
-
-    if strategy == "linear":
-        # Members are already ordered by penalty in queue show output;
-        # the first eligible one (lowest penalty, earliest in list) wins.
-        return {eligible[0]["interface"]}, True
-
-    return set(), True
+    log.info("  next_set=%s predictable=%s", next_set, is_predictable)
+    return next_set, is_predictable
 
 
 def build_display(
