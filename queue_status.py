@@ -713,7 +713,7 @@ def build_display(
 
             # Next column
             if interface in next_set:
-                next_txt = Text("★ Next", style="bold green")
+                next_txt = Text("* Next", style="bold green")
             elif not is_predictable and interface in eligible_interfaces:
                 next_txt = Text("?", style="yellow")
             else:
