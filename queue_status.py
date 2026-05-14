@@ -549,7 +549,21 @@ def parse_output(raw: str) -> dict:
     return data
 
 
-_BUSY_STATES = {"in use", "busy", "ringing", "on hold", "unavailable"}
+def is_eligible(m: dict) -> bool:
+    """An agent can receive the next call only if every safety check passes.
+
+    Positive state check: state must be exactly "not in use". Anything else
+    (in use, busy, ringing, on hold, unavailable, unknown, or any future
+    Asterisk state we haven't seen) excludes the agent. This is strictly
+    stronger than blacklisting busy states — a parse miss can't accidentally
+    qualify a non-idle agent.
+    """
+    return (
+        not m.get("paused")
+        and not m.get("in_call")
+        and not m.get("unavailable")
+        and (m.get("state") or "").lower() == "not in use"
+    )
 
 
 def determine_next_agents(members: list, strategy: str) -> tuple[set, bool]:
@@ -560,17 +574,11 @@ def determine_next_agents(members: list, strategy: str) -> tuple[set, bool]:
       next_set       — interface names of the predicted next agent(s)
       is_predictable — False for strategies where we cannot predict (random, etc.)
 
-    Eligible = not paused, not in a call, not (Unavailable), device state is idle.
+    Eligible = is_eligible() — see that helper for the exact contract.
     """
     strategy = (strategy or "").lower().strip()
 
-    eligible = [
-        m for m in members
-        if not m.get("paused")
-        and not m.get("in_call")
-        and not m.get("unavailable")
-        and m.get("state", "not in use") not in _BUSY_STATES
-    ]
+    eligible = [m for m in members if is_eligible(m)]
 
     predictable_strategies = {"ringall", "leastrecent", "fewestcalls", "linear"}
     is_predictable = strategy in predictable_strategies
@@ -664,14 +672,6 @@ def build_display(
     strategy = h.get("strategy", "")
     next_set, is_predictable = determine_next_agents(data["members"], strategy)
 
-    # Eligible agents for "?" marking in unpredictable strategies
-    eligible_interfaces = {
-        m["interface"] for m in data["members"]
-        if not m.get("paused") and not m.get("in_call")
-        and not m.get("unavailable")
-        and m.get("state", "not in use") not in _BUSY_STATES
-    }
-
     # ── Members table ─────────────────────────────────────────────
     members_table = Table(
         box=box.SIMPLE_HEAVY,
@@ -683,7 +683,7 @@ def build_display(
     )
     members_table.add_column("Agent", style="cyan", no_wrap=True)
     members_table.add_column("Penalty", justify="center")
-    members_table.add_column("State", justify="left", no_wrap=True)
+    members_table.add_column("State", justify="left")
     members_table.add_column("Next", justify="center")
     members_table.add_column("In Call", justify="center")
     members_table.add_column("Talking To", style="magenta", no_wrap=True)
@@ -711,16 +711,23 @@ def build_display(
             pause_reason = (m.get("pause_reason") or "").upper()
             pause_since = secs_to_human(m.get("pause_secs")) if m.get("pause_secs") is not None else "-"
 
-            # Next column
-            if interface in next_set:
-                next_txt = Text("* Next", style="bold green")
-            elif not is_predictable and interface in eligible_interfaces:
+            # Next column. Hard rendering-layer guard: only an eligible agent
+            # (per is_eligible) can ever render as Next. determine_next_agents
+            # already filters on the same helper, but checking again here means
+            # a stale next_set or a future bug in the prediction logic still
+            # can't put "★ Next" on an Unavailable/paused/in-call agent.
+            eligible = is_eligible(m)
+            if interface in next_set and eligible:
+                next_txt = Text("★ Next", style="bold green")
+            elif not is_predictable and eligible:
                 next_txt = Text("?", style="yellow")
             else:
                 next_txt = Text("-", style="bright_black")
 
             state_label, state_color = state_style(m.get("state", "not in use"))
             state_txt = Text(state_label, style=state_color)
+
+            paused_txt = Text("Yes", style="yellow") if paused else Text("No", style="green")
 
             members_table.add_row(
                 m.get("name", m.get("interface", "?")),
@@ -729,7 +736,7 @@ def build_display(
                 next_txt,
                 in_call_txt,
                 talking_to_txt,
-                "[yellow]Yes[/yellow]" if paused else "[green]No[/green]",
+                paused_txt,
                 Text(pause_reason, style="yellow") if pause_reason else Text("-", style="bright_black"),
                 pause_since,
                 str(m.get("calls_taken", 0)),
