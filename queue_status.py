@@ -710,7 +710,7 @@ def build_display(
         title="[bold]Members[/bold]",
         title_style="bold white",
     )
-    members_table.add_column("Agent", style="cyan", no_wrap=True)
+    members_table.add_column("Agent", no_wrap=True)
     members_table.add_column("Penalty", justify="center")
     members_table.add_column("Next", justify="center")
     members_table.add_column("In Call", justify="center")
@@ -754,8 +754,18 @@ def build_display(
 
             paused_txt = Text("Yes", style="yellow") if paused else Text("No", style="green")
 
+            # Agent cell: name + state. Name is dim when state is Unavailable
+            # so offline/logged-out agents recede visually; otherwise cyan.
+            agent_name = m.get("name", m.get("interface", "?"))
+            state_lc = (m.get("state") or "").lower()
+            state_label, state_color = state_style(m.get("state", "not in use"))
+            agent_cell = Text()
+            agent_cell.append(agent_name, style="dim" if state_lc == "unavailable" else "cyan")
+            agent_cell.append("  ")
+            agent_cell.append(state_label, style=state_color)
+
             members_table.add_row(
-                m.get("name", m.get("interface", "?")),
+                agent_cell,
                 str(m.get("penalty", 0)),
                 next_txt,
                 in_call_txt,
