@@ -34,6 +34,10 @@ pip install rich
 ## Usage
 
 ```bash
+# Pick a queue interactively from a grid of available queues
+python3 queue_status.py
+
+# Open a specific queue directly
 python3 queue_status.py <queue_name>
 
 # Custom refresh interval (default: 2 seconds)
@@ -46,7 +50,24 @@ python3 queue_status.py <queue_name> -i 3
 python3 queue_status.py QUEUE_1000_65
 ```
 
-Press `Ctrl+C` to quit.
+### Queue selection
+
+If no queue name is given, the script reads the list of queues from
+`queue show` and presents them in a grid:
+
+- `←` `↑` `↓` `→` — move the selection
+- `Enter` — open the highlighted queue
+- `q` or `Esc` — quit
+
+If only one queue exists, it is opened automatically. On non-interactive
+stdin (e.g. piped input), the picker falls back to a numbered prompt.
+
+### Keys while monitoring
+
+- `b` — back to the queue picker (switch queues without restarting)
+- `q` — quit gracefully
+
+`Ctrl+C` also works as a fallback.
 
 ## How it works
 
