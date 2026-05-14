@@ -393,12 +393,13 @@ def parse_member(line: str) -> dict:
     # In call flag — explicit "(in call)" token before the state parenthesis
     member["in_call"] = bool(re.search(r"\(in call\)", line, re.IGNORECASE))
 
-    # Device state — used for eligibility; not displayed
-    state_m = re.search(
-        r"\((Not in use|In use|Busy|Unavailable|Ringing|On Hold|Unknown)[^)]*\)",
-        line, re.IGNORECASE,
-    )
-    member["state"] = state_m.group(1).lower() if state_m else "not in use"
+    # Device state — the parenthesised token immediately before "has taken".
+    # Anchoring on this stable phrase is far more robust than enumerating
+    # state names: Asterisk versions vary in labels, and a missed alternative
+    # used to silently fall through to "not in use", masking the failure.
+    # Fallback is "unknown" so a parse miss is visible in the State column.
+    state_m = re.search(r"\(([^)]+)\)\s+has\s+taken\b", line, re.IGNORECASE)
+    member["state"] = state_m.group(1).strip().lower() if state_m else "unknown"
 
     # Explicit unavailable flag — independent of the state-alternation regex
     # above. Agents marked (Unavailable) by Asterisk (e.g. device offline,
