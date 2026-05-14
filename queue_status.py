@@ -683,7 +683,6 @@ def build_display(
     )
     members_table.add_column("Agent", style="cyan", no_wrap=True)
     members_table.add_column("Penalty", justify="center")
-    members_table.add_column("State", justify="left")
     members_table.add_column("Next", justify="center")
     members_table.add_column("In Call", justify="center")
     members_table.add_column("Talking To", style="magenta", no_wrap=True)
@@ -724,15 +723,11 @@ def build_display(
             else:
                 next_txt = Text("-", style="bright_black")
 
-            state_label, state_color = state_style(m.get("state", "not in use"))
-            state_txt = Text(state_label, style=state_color)
-
             paused_txt = Text("Yes", style="yellow") if paused else Text("No", style="green")
 
             members_table.add_row(
                 m.get("name", m.get("interface", "?")),
                 str(m.get("penalty", 0)),
-                state_txt,
                 next_txt,
                 in_call_txt,
                 talking_to_txt,
@@ -744,7 +739,7 @@ def build_display(
                 secs_to_human(m.get("login_secs")),
             )
     else:
-        members_table.add_row("[dim]No members[/dim]", "", "", "", "", "", "", "", "", "", "", "")
+        members_table.add_row("[dim]No members[/dim]", "", "", "", "", "", "", "", "", "", "")
 
     # ── Callers table ─────────────────────────────────────────────
     callers_table = Table(
