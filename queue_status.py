@@ -400,6 +400,13 @@ def parse_member(line: str) -> dict:
     )
     member["state"] = state_m.group(1).lower() if state_m else "not in use"
 
+    # Explicit unavailable flag — independent of the state-alternation regex
+    # above. Agents marked (Unavailable) by Asterisk (e.g. device offline,
+    # logged out) must never be eligible to receive the next call, even if
+    # some future Asterisk version reorders state tokens or adds qualifiers
+    # that the state regex doesn't anticipate.
+    member["unavailable"] = bool(re.search(r"\(Unavailable\b", line, re.IGNORECASE))
+
     # ringinuse
     member["ringinuse"] = not bool(re.search(r"ringinuse disabled", line, re.IGNORECASE))
 
@@ -480,6 +487,22 @@ def sl_color(sl: float) -> str:
     return "red"
 
 
+_STATE_DISPLAY = {
+    "not in use": ("Not in use", "green"),
+    "in use":     ("In use",     "yellow"),
+    "busy":       ("Busy",       "yellow"),
+    "ringing":    ("Ringing",    "yellow"),
+    "on hold":    ("On Hold",    "yellow"),
+    "unavailable":("Unavailable","red"),
+    "unknown":    ("Unknown",    "bright_black"),
+}
+
+
+def state_style(state: str) -> tuple[str, str]:
+    """Return (display label, rich style) for a device state."""
+    return _STATE_DISPLAY.get((state or "").lower(), (state or "?", "bright_black"))
+
+
 def parse_output(raw: str) -> dict:
     """Parse full asterisk queue show output into structured data."""
     data = {"header": {}, "members": [], "callers": [], "error": None}
@@ -536,7 +559,7 @@ def determine_next_agents(members: list, strategy: str) -> tuple[set, bool]:
       next_set       — interface names of the predicted next agent(s)
       is_predictable — False for strategies where we cannot predict (random, etc.)
 
-    Eligible = not paused, not in a call, device state is idle.
+    Eligible = not paused, not in a call, not (Unavailable), device state is idle.
     """
     strategy = (strategy or "").lower().strip()
 
@@ -544,6 +567,7 @@ def determine_next_agents(members: list, strategy: str) -> tuple[set, bool]:
         m for m in members
         if not m.get("paused")
         and not m.get("in_call")
+        and not m.get("unavailable")
         and m.get("state", "not in use") not in _BUSY_STATES
     ]
 
@@ -643,6 +667,7 @@ def build_display(
     eligible_interfaces = {
         m["interface"] for m in data["members"]
         if not m.get("paused") and not m.get("in_call")
+        and not m.get("unavailable")
         and m.get("state", "not in use") not in _BUSY_STATES
     }
 
@@ -657,6 +682,7 @@ def build_display(
     )
     members_table.add_column("Agent", style="cyan", no_wrap=True)
     members_table.add_column("Penalty", justify="center")
+    members_table.add_column("State", justify="left", no_wrap=True)
     members_table.add_column("Next", justify="center")
     members_table.add_column("In Call", justify="center")
     members_table.add_column("Talking To", style="magenta", no_wrap=True)
@@ -692,9 +718,13 @@ def build_display(
             else:
                 next_txt = Text("-", style="bright_black")
 
+            state_label, state_color = state_style(m.get("state", "not in use"))
+            state_txt = Text(state_label, style=state_color)
+
             members_table.add_row(
                 m.get("name", m.get("interface", "?")),
                 str(m.get("penalty", 0)),
+                state_txt,
                 next_txt,
                 in_call_txt,
                 talking_to_txt,
@@ -706,7 +736,7 @@ def build_display(
                 secs_to_human(m.get("login_secs")),
             )
     else:
-        members_table.add_row("[dim]No members[/dim]", "", "", "", "", "", "", "", "", "", "")
+        members_table.add_row("[dim]No members[/dim]", "", "", "", "", "", "", "", "", "", "", "")
 
     # ── Callers table ─────────────────────────────────────────────
     callers_table = Table(
